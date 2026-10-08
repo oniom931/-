@@ -39,6 +39,7 @@ class Item:
     date: dt.date | None     # 달력에 표시할 날짜
     received: bool
     shortage: float | None = None
+    received_date: dt.date | None = None  # 입고일 (날짜로 읽힐 때)
     exclude_tag: str | None = None  # '안전재고' / '성적서 확보용' → 전체수량 제외
 
 
@@ -110,25 +111,27 @@ def build_items(rows: list[OrderRow], default_year: int) -> list[Item]:
         if not cat or not product:
             continue
         ref = to_date(r.order_date, default_year)
-        date = to_date(r.expected, ref.year if ref else default_year, ref)
-        if date is None:  # 입고예정일이 '9월 예정'처럼 날짜가 아니면 입고일로 대체
-            date = to_date(r.received, ref.year if ref else default_year, ref)
+        year = ref.year if ref else default_year
+        expected = to_date(r.expected, year, ref)
+        received_date = to_date(r.received, year, ref)
+        # 입고완료는 입고일 칸, 입고예정은 입고예정일 칸에 적는다
+        date = received_date or expected
         items.append(Item(r.row, product, cat, str(r.part_no).strip(),
                           str(r.part_name or "").strip(), date, is_filled(r.received),
-                          to_number(r.shortage), exclude_tag_of(r.remark)))
+                          to_number(r.shortage), received_date, exclude_tag_of(r.remark)))
     return items
 
 
 def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
-    """날짜별 셀 문구. 입고현황(a/b)은 모품목+구분 전체 기준."""
-    totals: dict[tuple, list[int]] = {}
+    """날짜별 셀 문구. 입고현황(a/b): a=그 날짜까지 입고된 품목 수, b=모품목+구분 전체 품목 수."""
+    counted: dict[tuple, list[Item]] = {}
     for it in items:
-        t = totals.setdefault((it.product, it.category), [0, 0])
-        if it.exclude_tag:
-            continue
-        t[1] += 1
-        if it.received:
-            t[0] += 1
+        if not it.exclude_tag:
+            counted.setdefault((it.product, it.category), []).append(it)
+
+    def received_by(key, date):
+        return sum(1 for it in counted.get(key, [])
+                   if it.received and (it.received_date is None or it.received_date <= date))
 
     product_order = list(OrderedDict.fromkeys(it.product for it in items))
     by_date: dict[dt.date, dict[tuple, list[int]]] = {}
@@ -155,7 +158,7 @@ def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
             if tag:  # 제외 품목은 입고현황 없이 표시
                 blocks.append(f"{head}\n({tag})")
             else:
-                a, b = totals[(product, cat)]
+                a, b = received_by((product, cat), date), len(counted[(product, cat)])
                 blocks.append(f"{head}\n입고현황 ({a}/{b})")
         out[date] = "\n\n".join(blocks)
     return out
