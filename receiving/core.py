@@ -149,17 +149,15 @@ def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
         blocks = []
         for product, cat, tag in keys:
             done, pending = groups[(product, cat, tag)]
-            parts = []
-            if done:
-                parts.append(f"{done}종 입고완료")
-            if pending:
-                parts.append(f"{pending}종 입고예정")
-            head = f"{product}-{cat} {' / '.join(parts)}"
+            # 예) "9/30 리파인-원료2종\n입고완료 입고현황(2/4)"
             if tag:  # 제외 품목은 입고현황 없이 표시
-                blocks.append(f"{head}\n({tag})")
+                tail = f"({tag})"
             else:
                 a, b = received_by((product, cat), date), len(counted[(product, cat)])
-                blocks.append(f"{head}\n입고현황 ({a}/{b})")
+                tail = f"입고현황({a}/{b})"
+            for n, status in ((done, "입고완료"), (pending, "입고예정")):
+                if n:
+                    blocks.append(f"{date.month}/{date.day} {product}-{cat}{n}종\n{status} {tail}")
         out[date] = "\n\n".join(blocks)
     return out
 
