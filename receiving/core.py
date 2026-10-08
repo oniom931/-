@@ -123,7 +123,13 @@ def build_items(rows: list[OrderRow], default_year: int) -> list[Item]:
 
 
 def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
-    """날짜별 셀 문구. 입고현황(a/b): a=그 날짜까지 입고된 품목 수, b=모품목+구분 전체 품목 수."""
+    """날짜별 셀 문구 (블록을 빈 줄로 이어 붙임)."""
+    return OrderedDict((d, "\n\n".join(text for _, text in blocks))
+                       for d, blocks in build_cell_blocks(items).items())
+
+
+def build_cell_blocks(items: list[Item]) -> "OrderedDict[dt.date, list[tuple[str, str]]]":
+    """날짜별 (모품목, 문구) 블록 목록. 입고현황(a/b): a=그 날짜까지 입고된 품목 수, b=모품목+구분 전체 품목 수."""
     counted: dict[tuple, list[Item]] = {}
     for it in items:
         if not it.exclude_tag:
@@ -142,7 +148,7 @@ def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
         g = by_date.setdefault(it.date, {}).setdefault(key, [0, 0])
         g[0 if it.received else 1] += 1
 
-    out: "OrderedDict[dt.date, str]" = OrderedDict()
+    out: "OrderedDict[dt.date, list[tuple[str, str]]]" = OrderedDict()
     for date in sorted(by_date):
         groups = by_date[date]
         keys = sorted(groups, key=lambda k: (product_order.index(k[0]), CATEGORY_ORDER.index(k[1]), k[2]))
@@ -157,8 +163,8 @@ def build_cell_texts(items: list[Item]) -> "OrderedDict[dt.date, str]":
                 tail = f"입고현황({a}/{b})"
             for n, status in ((done, "입고완료"), (pending, "입고예정")):
                 if n:
-                    blocks.append(f"{date.month}/{date.day} {product}-{cat}{n}종\n{status} {tail}")
-        out[date] = "\n\n".join(blocks)
+                    blocks.append((product, f"{date.month}/{date.day} {product}-{cat}{n}종\n{status} {tail}"))
+        out[date] = blocks
     return out
 
 
@@ -169,3 +175,21 @@ def unplaced(items: list[Item]) -> list[Item]:
 def shortage_warnings(items: list[Item]) -> list[Item]:
     """부족이 양수인데 비고에 안전재고/성적서 확보용 문구가 없는 품목."""
     return [it for it in items if it.shortage is not None and it.shortage > 0 and not it.exclude_tag]
+
+
+# 스크립트가 쓴 블록 형식: "9/30 리파인-원료2종\n입고완료 입고현황(2/4)"
+AUTO_BLOCK_RE = re.compile(r"^\d{1,2}/\d{1,2} (?P<product>.+)-(?:자재|원료)\d+종\n입고(?:완료|예정)\b")
+
+
+def merge_cell(existing: str | None, new_blocks: list[str], products: set[str] | None) -> str:
+    """기존 칸 내용에서 대상 모품목의 자동 블록만 지우고 새 블록을 뒤에 붙인다.
+    사람이 직접 적은 내용(형식이 다른 블록)은 그대로 둔다. products=None 이면 모든 모품목 대상."""
+    kept = []
+    for block in re.split(r"\n\s*\n", (existing or "").strip()):
+        if not block.strip():
+            continue
+        m = AUTO_BLOCK_RE.match(block.strip())
+        if m and (products is None or m["product"] in products):
+            continue
+        kept.append(block.strip())
+    return "\n\n".join(kept + new_blocks)

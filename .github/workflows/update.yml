@@ -1,0 +1,31 @@
+name: 시트3 입고일정 갱신
+
+on:
+  workflow_dispatch:
+    inputs:
+      product:
+        description: "모품목 (비우면 전체)"
+        required: false
+  # 매일 자동 실행하려면 아래 두 줄의 주석을 푸세요 (평일 07:50 KST)
+  # schedule:
+  #   - cron: "50 22 * * 0-4"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: 시트3 입력
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PRODUCT: ${{ github.event.inputs.product }}
+        run: |
+          if [ -n "$PRODUCT" ]; then
+            python -m receiving.cli apply --product "$PRODUCT"
+          else
+            python -m receiving.cli apply
+          fi
